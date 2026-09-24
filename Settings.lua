@@ -41,6 +41,10 @@ function NetPulse:RefreshSettings()
     for themeName, button in pairs(controls.themes) do
         setSelected(button, self.profile.theme == themeName)
     end
+
+    if controls.minimap and type(self.profile.minimap) == "table" then
+        controls.minimap:SetChecked(self.profile.minimap.shown ~= false)
+    end
 end
 
 function NetPulse:CreateSettings()
@@ -103,8 +107,19 @@ function NetPulse:CreateSettings()
     end)
     resetButton:SetPoint("TOPLEFT", panel.controls.themes.forged, "BOTTOMRIGHT", -268, -28)
 
+    local minimapCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    minimapCheck:SetSize(24, 24)
+    minimapCheck:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -14)
+    minimapCheck:SetScript("OnClick", function(checkButton)
+        self:SetMinimapShown(checkButton:GetChecked() == true)
+    end)
+    panel.controls.minimap = minimapCheck
+
+    local minimapLabel = createLabel(panel, "Show Minimap Button")
+    minimapLabel:SetPoint("LEFT", minimapCheck, "RIGHT", 4, 0)
+
     local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -14)
+    hint:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 0, -12)
     hint:SetWidth(360)
     hint:SetJustifyH("LEFT")
     hint:SetText("Unlock NetPulse to drag the unit or resize it from the lower-right corner.")
@@ -116,6 +131,7 @@ function NetPulse:CreateSettings()
         self:SetLocked(self.defaults.locked)
         self:SetOrientation(self.defaults.orientation)
         self:SetTheme(self.defaults.theme)
+        self:SetMinimapShown(self.defaults.minimap.shown)
         self:ResetPositionAndSize()
     end
     panel.OnRefresh = function()
@@ -139,6 +155,8 @@ function NetPulse:PrintDebugState()
     local frame = self.display or _G.NetPulseDisplay
     local profile = self.profile or {}
     local values = self.values or {}
+    local minimap = type(profile.minimap) == "table" and profile.minimap or {}
+    local minimapButton = self.minimapButton
     local shown = frame and frame:IsShown() or false
     local width = frame and frame:GetWidth() or 0
     local height = frame and frame:GetHeight() or 0
@@ -165,6 +183,13 @@ function NetPulse:PrintDebugState()
         tostring(values.fps),
         tostring(values.home),
         tostring(values.world)
+    ))
+    self:Print(string.format(
+        "minimap shown=%s angle=%.0f button=%s visible=%s",
+        tostring(minimap.shown ~= false),
+        tonumber(minimap.angle) or self.defaults.minimap.angle,
+        tostring(minimapButton ~= nil),
+        tostring(minimapButton and minimapButton:IsShown() or false)
     ))
     self:Print("startup error=" .. tostring(self.startupErrorStep or "none") .. ": " .. errorSummary)
 end
@@ -198,6 +223,19 @@ function NetPulse:RegisterSlashCommands()
         elseif command == "vertical" then
             self:SetOrientation("vertical")
             self:Print("Vertical layout selected.")
+        elseif command == "minimap" then
+            if argument == "on" then
+                self:SetMinimapShown(true)
+                self:Print("Minimap button shown.")
+            elseif argument == "off" then
+                self:SetMinimapShown(false)
+                self:Print("Minimap button hidden.")
+            elseif argument == "" then
+                local shown = self.profile.minimap.shown ~= false
+                self:Print("Minimap button is " .. (shown and "shown" or "hidden") .. ". Options: on, off")
+            else
+                self:Print("Usage: /np minimap on|off")
+            end
         elseif command == "theme" then
             if argument == "" then
                 self:Print("Themes: minimal, dark, blizzard, forged")
@@ -207,7 +245,7 @@ function NetPulse:RegisterSlashCommands()
                 self:Print("Unknown theme. Available: minimal, dark, blizzard, forged")
             end
         else
-            self:Print("Commands: debug, lock, unlock, reset, horizontal, vertical, theme <name>")
+            self:Print("Commands: debug, lock, unlock, reset, horizontal, vertical, minimap on|off, theme <name>")
         end
     end
 end

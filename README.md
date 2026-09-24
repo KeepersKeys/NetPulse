@@ -10,6 +10,7 @@ NetPulse is a lightweight World of Warcraft Retail addon that displays current F
 - Minimal, Dark, Blizzard, and Forged themes
 - Performance-based colors for FPS and latency
 - Small in-game settings panel
+- Optional draggable minimap button
 - Timer-based updates with no permanent idle `OnUpdate`
 
 ## Installation
@@ -29,12 +30,13 @@ The final path must contain `NetPulse\NetPulse.toc` directly. Restart World of W
 - `/np debug` — print Alpha startup and display state
 - `/np horizontal`
 - `/np vertical`
+- `/np minimap on|off`
 - `/np theme` — list themes
 - `/np theme minimal|dark|blizzard|forged`
 
 ## Version
 
-`0.1.3-alpha`
+`0.1.4-alpha`
 
 ## Screenshots
 

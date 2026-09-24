@@ -1,8 +1,8 @@
 local addonName, NetPulse = ...
 
 NetPulse.addonName = addonName
-NetPulse.version = "0.1.3-alpha"
-NetPulse.schemaVersion = 1
+NetPulse.version = "0.1.4-alpha"
+NetPulse.schemaVersion = 2
 
 NetPulse.defaults = {
     locked = false,
@@ -23,6 +23,10 @@ NetPulse.defaults = {
             width = 180,
             height = 105,
         },
+    },
+    minimap = {
+        shown = true,
+        angle = 220,
     },
 }
 
@@ -163,6 +167,11 @@ function NetPulse:InitializeDatabase()
     vertical.width = clampNumber(vertical.width, self.defaults.size.vertical.width, 145, 500)
     vertical.height = clampNumber(vertical.height, self.defaults.size.vertical.height, 84, 600)
 
+    local minimap = profile.minimap
+    minimap.shown = minimap.shown ~= false
+    minimap.angle = tonumber(minimap.angle) or self.defaults.minimap.angle
+    minimap.angle = minimap.angle % 360
+
     self.db = NetPulseDB
     self.profile = profile
 end
@@ -261,6 +270,10 @@ function NetPulse:Initialize()
             print(message)
         end
     end
+
+    self:RunStartupStep("CreateMinimapButton", function()
+        self:CreateMinimapButton()
+    end)
 
     self:RunStartupStep("CreateSettings", function()
         self:CreateSettings()
