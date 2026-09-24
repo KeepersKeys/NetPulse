@@ -1,0 +1,11 @@
+## Interface: 120100
+## Title: NetPulse
+## Notes: FPS & Network Monitor
+## Author: KeepersKeys
+## Version: 0.1.0-alpha
+## SavedVariables: NetPulseDB
+
+Core.lua
+Themes.lua
+Display.lua
+Settings.lua
