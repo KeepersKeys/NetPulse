@@ -2,7 +2,7 @@ local _, NetPulse = ...
 
 local BUTTON_SIZE = 31
 local DEFAULT_ANGLE = 220
-local ICON_TEXTURE = "Interface\\Icons\\INV_Misc_PocketWatch_01"
+local ICON_TEXTURE = "Interface\\AddOns\\NetPulse\\Media\\NetPulseIcon.tga"
 
 local function normalizeAngle(angle)
     angle = tonumber(angle) or DEFAULT_ANGLE

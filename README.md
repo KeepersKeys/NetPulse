@@ -11,6 +11,7 @@ NetPulse is a lightweight World of Warcraft Retail addon that displays current F
 - Performance-based colors for FPS and latency
 - Small in-game settings panel
 - Optional draggable minimap button
+- Dedicated NetPulse addon and minimap icon
 - Timer-based updates with no permanent idle `OnUpdate`
 
 ## Installation
@@ -36,7 +37,7 @@ The final path must contain `NetPulse\NetPulse.toc` directly. Restart World of W
 
 ## Version
 
-`0.1.5-alpha`
+`0.1.6-alpha`
 
 ## Screenshots
 
