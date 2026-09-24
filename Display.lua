@@ -70,24 +70,31 @@ function NetPulse:GetLatencyColor(latency)
 end
 
 function NetPulse:RefreshMetricText()
-    if not self.display then
-        return
+    local frame = self.display
+    if not frame or not frame.fpsText or not frame.homeText or not frame.worldText then
+        return false
     end
 
-    local theme = self.Themes[self.profile.theme]
-    local fps = self.values.fps
-    local home = self.values.home
-    local world = self.values.world
+    local theme = self.Themes and self.profile and self.Themes[self.profile.theme]
+    if not theme then
+        return false
+    end
 
-    self.display.fpsText:SetText(
+    local values = self.values or {}
+    local fps = tonumber(values.fps) or 0
+    local home = tonumber(values.home) or 0
+    local world = tonumber(values.world) or 0
+
+    frame.fpsText:SetText(
         colorText("FPS", theme.labelColor) .. " " .. colorText(rounded(fps), self:GetFPSColor(fps))
     )
-    self.display.homeText:SetText(
+    frame.homeText:SetText(
         colorText("Home", theme.labelColor) .. " " .. colorText(rounded(home) .. " ms", self:GetLatencyColor(home))
     )
-    self.display.worldText:SetText(
+    frame.worldText:SetText(
         colorText("World", theme.labelColor) .. " " .. colorText(rounded(world) .. " ms", self:GetLatencyColor(world))
     )
+    return true
 end
 
 function NetPulse:UpdateFPS()
@@ -190,10 +197,18 @@ end
 
 function NetPulse:UpdateDisplayLayout()
     local frame = self.display
+    if not frame or not frame.fpsText or not frame.homeText or not frame.worldText
+        or not frame.separatorOne or not frame.separatorTwo then
+        return false
+    end
+
     local width = frame:GetWidth()
     local height = frame:GetHeight()
     local orientation = self.profile.orientation
     local theme = self.Themes[self.profile.theme]
+    if not theme then
+        return false
+    end
 
     frame.fpsText:ClearAllPoints()
     frame.homeText:ClearAllPoints()
@@ -242,6 +257,7 @@ function NetPulse:UpdateDisplayLayout()
     frame.worldText:SetFont(theme.font, fontSize, theme.fontFlags)
     frame.separatorOne:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
     frame.separatorTwo:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
+    return true
 end
 
 function NetPulse:ApplyLayout(useSavedSize)
@@ -275,34 +291,50 @@ function NetPulse:ApplyLayout(useSavedSize)
 end
 
 function NetPulse:ApplyTheme()
-    if not self.display then
-        return
+    local frame = self.display
+    if not frame then
+        return false
     end
 
-    local theme = self.Themes[self.profile.theme]
-    self.display:SetBackdrop(theme.backdrop)
-    self.display:SetBackdropColor(unpack(theme.backgroundColor))
-    self.display:SetBackdropBorderColor(unpack(theme.borderColor))
-    self.display.separatorOne:SetTextColor(unpack(theme.separatorColor))
-    self.display.separatorTwo:SetTextColor(unpack(theme.separatorColor))
-    self.display.resizeGrip:SetAlpha(theme.gripAlpha)
-    self:UpdateDisplayLayout()
-    self:RefreshMetricText()
-    if self.display.fallbackBackground then
-        self.display.fallbackBackground:Hide()
+    local theme = self.Themes and self.profile and self.Themes[self.profile.theme]
+    if not theme then
+        return false
     end
+
+    frame:SetBackdrop(theme.backdrop)
+    frame:SetBackdropColor(unpack(theme.backgroundColor))
+    frame:SetBackdropBorderColor(unpack(theme.borderColor))
+    if frame.separatorOne then
+        frame.separatorOne:SetTextColor(unpack(theme.separatorColor))
+    end
+    if frame.separatorTwo then
+        frame.separatorTwo:SetTextColor(unpack(theme.separatorColor))
+    end
+    if frame.resizeGrip then
+        frame.resizeGrip:SetAlpha(theme.gripAlpha)
+    end
+
+    local layoutReady = self:UpdateDisplayLayout()
+    local textReady = self:RefreshMetricText()
+    if layoutReady and textReady and frame.fallbackBackground then
+        frame.fallbackBackground:Hide()
+    end
+    return layoutReady and textReady
 end
 
 function NetPulse:ApplyLockState()
-    if not self.display then
+    local frame = self.display
+    if not frame then
         return
     end
 
     local unlocked = not self.profile.locked
-    self.display:SetMovable(unlocked)
-    self.display:SetResizable(unlocked)
-    self.display:EnableMouse(unlocked)
-    self.display.resizeGrip:SetShown(unlocked)
+    frame:SetMovable(unlocked)
+    frame:SetResizable(unlocked)
+    frame:EnableMouse(unlocked)
+    if frame.resizeGrip then
+        frame.resizeGrip:SetShown(unlocked)
+    end
 end
 
 function NetPulse:CreateDisplay()
@@ -339,12 +371,12 @@ function NetPulse:CreateDisplay()
     frame.homeText:SetText("Home -- ms")
     frame.worldText:SetText("World -- ms")
 
-    frame.separatorOne = frame:CreateFontString(nil, "OVERLAY")
+    frame.separatorOne = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.separatorOne:SetText("|")
     frame.separatorOne:SetJustifyH("CENTER")
     frame.separatorOne:SetJustifyV("MIDDLE")
 
-    frame.separatorTwo = frame:CreateFontString(nil, "OVERLAY")
+    frame.separatorTwo = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.separatorTwo:SetText("|")
     frame.separatorTwo:SetJustifyH("CENTER")
     frame.separatorTwo:SetJustifyV("MIDDLE")
