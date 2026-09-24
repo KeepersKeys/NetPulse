@@ -1,7 +1,7 @@
 local addonName, NetPulse = ...
 
 NetPulse.addonName = addonName
-NetPulse.version = "0.1.4-alpha"
+NetPulse.version = "0.1.5-alpha"
 NetPulse.schemaVersion = 2
 
 NetPulse.defaults = {

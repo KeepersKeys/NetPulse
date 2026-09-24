@@ -1,31 +1,44 @@
 local _, NetPulse = ...
 
-local function createLabel(parent, text, size)
-    local label = parent:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+local function createLabel(parent, text, template)
+    local label = parent:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
     label:SetText(text)
-    if size then
-        local font, _, flags = label:GetFont()
-        label:SetFont(font, size, flags)
-    end
     return label
 end
 
 local function createButton(parent, text, width, onClick)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     button:SetSize(width or 140, 24)
-    button.baseText = text
     button:SetText(text)
     button:SetScript("OnClick", onClick)
     return button
 end
 
-local function setSelected(button, selected)
-    button:SetEnabled(not selected)
-    if selected then
-        button:SetText("[" .. button.baseText .. "]")
-    else
-        button:SetText(button.baseText)
-    end
+local function createCheckbox(parent, text, onClick)
+    local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    check:SetSize(22, 22)
+    check:SetScript("OnClick", onClick)
+
+    local label = check:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    label:SetPoint("LEFT", check, "RIGHT", 6, 1)
+    label:SetText(text)
+    check.label = label
+    return check
+end
+
+local function createRadio(parent, text, onClick)
+    local radio = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
+    radio:SetSize(18, 18)
+    radio:SetScript("OnClick", function()
+        onClick()
+        NetPulse:RefreshSettings()
+    end)
+
+    local label = radio:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    label:SetPoint("LEFT", radio, "RIGHT", 6, 1)
+    label:SetText(text)
+    radio.label = label
+    return radio
 end
 
 function NetPulse:RefreshSettings()
@@ -34,12 +47,12 @@ function NetPulse:RefreshSettings()
     end
 
     local controls = self.settingsPanel.controls
-    controls.lock:SetText(self.profile.locked and "Unlock NetPulse" or "Lock NetPulse")
-    setSelected(controls.horizontal, self.profile.orientation == "horizontal")
-    setSelected(controls.vertical, self.profile.orientation == "vertical")
+    controls.lock:SetChecked(self.profile.locked == true)
+    controls.horizontal:SetChecked(self.profile.orientation == "horizontal")
+    controls.vertical:SetChecked(self.profile.orientation == "vertical")
 
-    for themeName, button in pairs(controls.themes) do
-        setSelected(button, self.profile.theme == themeName)
+    for themeName, radio in pairs(controls.themes) do
+        radio:SetChecked(self.profile.theme == themeName)
     end
 
     if controls.minimap and type(self.profile.minimap) == "table" then
@@ -52,77 +65,85 @@ function NetPulse:CreateSettings()
     panel.name = "NetPulse"
     panel.controls = { themes = {} }
 
-    local title = createLabel(panel, "NetPulse", 20)
-    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
+    local title = createLabel(panel, "NetPulse", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -18)
 
-    local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    subtitle:SetText("FPS & Network Monitor  |  " .. self.version)
+    local subtitle = createLabel(panel, "FPS & Network Monitor", "GameFontHighlight")
+    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
 
-    local lockLabel = createLabel(panel, "Locking")
-    lockLabel:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -24)
-    local lockButton = createButton(panel, "Lock NetPulse", 160, function()
-        self:SetLocked(not self.profile.locked)
+    local version = createLabel(panel, self.version, "GameFontHighlightSmall")
+    version:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -2)
+
+    local displayHeader = createLabel(panel, "Display", "GameFontNormalLarge")
+    displayHeader:SetPoint("TOPLEFT", version, "BOTTOMLEFT", 0, -22)
+
+    local lockCheck = createCheckbox(panel, "Lock NetPulse", function(check)
+        self:SetLocked(check:GetChecked() == true)
     end)
-    lockButton:SetPoint("TOPLEFT", lockLabel, "BOTTOMLEFT", 0, -8)
-    panel.controls.lock = lockButton
+    lockCheck:SetPoint("TOPLEFT", displayHeader, "BOTTOMLEFT", 0, -8)
+    panel.controls.lock = lockCheck
 
-    local layoutLabel = createLabel(panel, "Layout")
-    layoutLabel:SetPoint("TOPLEFT", lockButton, "BOTTOMLEFT", 0, -24)
-    local horizontalButton = createButton(panel, "Horizontal", 130, function()
+    local orientationLabel = createLabel(panel, "Orientation", "GameFontHighlightSmall")
+    orientationLabel:SetPoint("TOPLEFT", lockCheck, "BOTTOMLEFT", 0, -14)
+
+    local horizontalRadio = createRadio(panel, "Horizontal", function()
         self:SetOrientation("horizontal")
     end)
-    horizontalButton:SetPoint("TOPLEFT", layoutLabel, "BOTTOMLEFT", 0, -8)
-    local verticalButton = createButton(panel, "Vertical", 130, function()
+    horizontalRadio:SetPoint("TOPLEFT", orientationLabel, "BOTTOMLEFT", 0, -6)
+
+    local verticalRadio = createRadio(panel, "Vertical", function()
         self:SetOrientation("vertical")
     end)
-    verticalButton:SetPoint("LEFT", horizontalButton, "RIGHT", 8, 0)
-    panel.controls.horizontal = horizontalButton
-    panel.controls.vertical = verticalButton
+    verticalRadio:SetPoint("LEFT", horizontalRadio, "LEFT", 120, 0)
+    panel.controls.horizontal = horizontalRadio
+    panel.controls.vertical = verticalRadio
 
-    local themeLabel = createLabel(panel, "Theme")
-    themeLabel:SetPoint("TOPLEFT", horizontalButton, "BOTTOMLEFT", 0, -24)
+    local themeLabel = createLabel(panel, "Theme", "GameFontHighlightSmall")
+    themeLabel:SetPoint("TOPLEFT", horizontalRadio, "BOTTOMLEFT", 0, -16)
 
-    local previousButton
+    local firstThemeRadio
+    local previousThemeRadio
     for index, themeName in ipairs(self.themeOrder) do
         local selectedTheme = themeName
         local theme = self.Themes[selectedTheme]
-        local button = createButton(panel, theme.displayName, 130, function()
+        local radio = createRadio(panel, theme.displayName, function()
             self:SetTheme(selectedTheme)
         end)
         if index == 1 then
-            button:SetPoint("TOPLEFT", themeLabel, "BOTTOMLEFT", 0, -8)
+            radio:SetPoint("TOPLEFT", themeLabel, "BOTTOMLEFT", 0, -6)
+            firstThemeRadio = radio
         elseif index % 2 == 0 then
-            button:SetPoint("LEFT", previousButton, "RIGHT", 8, 0)
+            radio:SetPoint("LEFT", previousThemeRadio, "LEFT", 120, 0)
         else
-            button:SetPoint("TOPLEFT", previousButton, "BOTTOMLEFT", -138, -8)
+            radio:SetPoint("TOPLEFT", firstThemeRadio, "BOTTOMLEFT", 0, -6)
         end
-        panel.controls.themes[selectedTheme] = button
-        previousButton = button
+        panel.controls.themes[selectedTheme] = radio
+        previousThemeRadio = radio
     end
 
-    local resetButton = createButton(panel, "Reset Position & Size", 268, function()
+    local minimapHeader = createLabel(panel, "Minimap", "GameFontNormalLarge")
+    minimapHeader:SetPoint("TOPLEFT", panel.controls.themes.blizzard, "BOTTOMLEFT", 0, -22)
+
+    local minimapCheck = createCheckbox(panel, "Show Minimap Button", function(check)
+        self:SetMinimapShown(check:GetChecked() == true)
+    end)
+    minimapCheck:SetPoint("TOPLEFT", minimapHeader, "BOTTOMLEFT", 0, -8)
+    panel.controls.minimap = minimapCheck
+
+    local resetHeader = createLabel(panel, "Reset", "GameFontNormalLarge")
+    resetHeader:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 0, -22)
+
+    local resetButton = createButton(panel, "Reset Position & Size", 210, function()
         self:ResetPositionAndSize()
         self:Print("Position and size reset.")
     end)
-    resetButton:SetPoint("TOPLEFT", panel.controls.themes.forged, "BOTTOMRIGHT", -268, -28)
-
-    local minimapCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
-    minimapCheck:SetSize(24, 24)
-    minimapCheck:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -14)
-    minimapCheck:SetScript("OnClick", function(checkButton)
-        self:SetMinimapShown(checkButton:GetChecked() == true)
-    end)
-    panel.controls.minimap = minimapCheck
-
-    local minimapLabel = createLabel(panel, "Show Minimap Button")
-    minimapLabel:SetPoint("LEFT", minimapCheck, "RIGHT", 4, 0)
+    resetButton:SetPoint("TOPLEFT", resetHeader, "BOTTOMLEFT", 0, -8)
 
     local hint = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    hint:SetPoint("TOPLEFT", minimapCheck, "BOTTOMLEFT", 0, -12)
+    hint:SetPoint("TOPLEFT", resetButton, "BOTTOMLEFT", 0, -14)
     hint:SetWidth(360)
     hint:SetJustifyH("LEFT")
-    hint:SetText("Unlock NetPulse to drag the unit or resize it from the lower-right corner.")
+    hint:SetText("Unlock NetPulse to drag or resize the display.")
 
     panel.OnCommit = function()
         -- Controls apply immediately, so there is nothing deferred to commit.
@@ -146,6 +167,7 @@ function NetPulse:CreateSettings()
 end
 
 function NetPulse:OpenSettings()
+    self:RefreshSettings()
     if self.settingsCategory then
         Settings.OpenToCategory(self.settingsCategory:GetID())
     end
