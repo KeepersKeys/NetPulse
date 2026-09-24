@@ -1,7 +1,7 @@
 local addonName, NetPulse = ...
 
 NetPulse.addonName = addonName
-NetPulse.version = "0.1.0-alpha"
+NetPulse.version = "0.1.1-alpha"
 NetPulse.schemaVersion = 1
 
 NetPulse.defaults = {
@@ -157,13 +157,19 @@ end
 function NetPulse:Initialize()
     self:InitializeDatabase()
     self:CreateDisplay()
-    self:CreateSettings()
-    self:RegisterSlashCommands()
     self:ApplyPosition()
     self:ApplyLayout(true)
     self:ApplyTheme()
     self:ApplyLockState()
+    self:RegisterSlashCommands()
     self:StartTimers()
+    self.display:Show()
+
+    local settingsCreated, settingsError = pcall(self.CreateSettings, self)
+    if not settingsCreated then
+        self.settingsError = settingsError
+        self:Print("Settings panel could not be initialized: " .. tostring(settingsError))
+    end
 end
 
 local eventFrame = CreateFrame("Frame")

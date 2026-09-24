@@ -109,9 +109,18 @@ function NetPulse:CreateSettings()
     hint:SetJustifyH("LEFT")
     hint:SetText("Unlock NetPulse to drag the unit or resize it from the lower-right corner.")
 
-    panel:SetScript("OnShow", function()
+    panel.OnCommit = function()
+        -- Controls apply immediately, so there is nothing deferred to commit.
+    end
+    panel.OnDefault = function()
+        self:SetLocked(self.defaults.locked)
+        self:SetOrientation(self.defaults.orientation)
+        self:SetTheme(self.defaults.theme)
+        self:ResetPositionAndSize()
+    end
+    panel.OnRefresh = function()
         self:RefreshSettings()
-    end)
+    end
 
     local category = Settings.RegisterCanvasLayoutCategory(panel, "NetPulse")
     Settings.RegisterAddOnCategory(category)

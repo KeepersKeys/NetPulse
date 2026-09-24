@@ -33,7 +33,7 @@ The final path must contain `NetPulse\NetPulse.toc` directly. Restart World of W
 
 ## Version
 
-`0.1.0-alpha`
+`0.1.1-alpha`
 
 ## Screenshots
 
