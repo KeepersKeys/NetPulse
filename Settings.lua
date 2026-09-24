@@ -135,6 +135,40 @@ function NetPulse:OpenSettings()
     end
 end
 
+function NetPulse:PrintDebugState()
+    local frame = self.display or _G.NetPulseDisplay
+    local profile = self.profile or {}
+    local values = self.values or {}
+    local shown = frame and frame:IsShown() or false
+    local width = frame and frame:GetWidth() or 0
+    local height = frame and frame:GetHeight() or 0
+    local points = frame and frame:GetNumPoints() or 0
+    local errorSummary = "none"
+    if self.lastStartupError then
+        errorSummary = tostring(self.lastStartupError):match("^[^\r\n]+") or tostring(self.lastStartupError)
+    end
+
+    self:Print("debug version=" .. tostring(self.version))
+    self:Print(string.format(
+        "frame=%s shown=%s size=%.0fx%.0f points=%d",
+        tostring(frame ~= nil),
+        tostring(shown),
+        width,
+        height,
+        points
+    ))
+    self:Print(string.format(
+        "orientation=%s theme=%s locked=%s FPS=%s Home=%s World=%s",
+        tostring(profile.orientation),
+        tostring(profile.theme),
+        tostring(profile.locked),
+        tostring(values.fps),
+        tostring(values.home),
+        tostring(values.world)
+    ))
+    self:Print("startup error=" .. tostring(self.startupErrorStep or "none") .. ": " .. errorSummary)
+end
+
 function NetPulse:RegisterSlashCommands()
     SLASH_NETPULSE1 = "/netpulse"
     SLASH_NETPULSE2 = "/np"
@@ -147,6 +181,8 @@ function NetPulse:RegisterSlashCommands()
 
         if command == "" then
             self:OpenSettings()
+        elseif command == "debug" then
+            self:PrintDebugState()
         elseif command == "lock" then
             self:SetLocked(true)
             self:Print("Locked.")
@@ -171,7 +207,7 @@ function NetPulse:RegisterSlashCommands()
                 self:Print("Unknown theme. Available: minimal, dark, blizzard, forged")
             end
         else
-            self:Print("Commands: lock, unlock, reset, horizontal, vertical, theme <name>")
+            self:Print("Commands: debug, lock, unlock, reset, horizontal, vertical, theme <name>")
         end
     end
 end

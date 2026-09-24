@@ -26,6 +26,7 @@ The final path must contain `NetPulse\NetPulse.toc` directly. Restart World of W
 - `/np lock`
 - `/np unlock`
 - `/np reset`
+- `/np debug` — print Alpha startup and display state
 - `/np horizontal`
 - `/np vertical`
 - `/np theme` — list themes
@@ -33,7 +34,7 @@ The final path must contain `NetPulse\NetPulse.toc` directly. Restart World of W
 
 ## Version
 
-`0.1.1-alpha`
+`0.1.2-alpha`
 
 ## Screenshots
 

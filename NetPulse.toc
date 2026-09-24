@@ -2,7 +2,7 @@
 ## Title: NetPulse
 ## Notes: FPS & Network Monitor
 ## Author: KeepersKeys
-## Version: 0.1.1-alpha
+## Version: 0.1.2-alpha
 ## SavedVariables: NetPulseDB
 
 Core.lua

@@ -130,9 +130,62 @@ function NetPulse:SaveSize()
 end
 
 function NetPulse:ApplyPosition()
+    local frame = self.display
+    if not frame then
+        error("display frame is unavailable")
+    end
+    if not UIParent then
+        error("UIParent is unavailable")
+    end
+    if type(self.profile) ~= "table" then
+        self:UseDefaultDatabase()
+    end
+
     local position = self.profile.position
-    self.display:ClearAllPoints()
-    self.display:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
+    local validPoints = type(self.validPoints) == "table" and self.validPoints or {}
+    local point = type(position) == "table" and position.point or nil
+    local relativePoint = type(position) == "table" and position.relativePoint or nil
+    local x = type(position) == "table" and tonumber(position.x) or nil
+    local y = type(position) == "table" and tonumber(position.y) or nil
+    local savedPositionValid = validPoints[point] and validPoints[relativePoint]
+        and x ~= nil and y ~= nil
+
+    if not savedPositionValid then
+        point, relativePoint, x, y = "CENTER", "CENTER", 0, 0
+    end
+
+    frame:ClearAllPoints()
+    local applied, positionError = pcall(frame.SetPoint, frame, point, UIParent, relativePoint, x, y)
+    if not applied then
+        self:ReportStartupError("ApplyPosition saved position", positionError)
+        frame:ClearAllPoints()
+        local fallbackApplied, fallbackError = pcall(
+            frame.SetPoint,
+            frame,
+            "CENTER",
+            UIParent,
+            "CENTER",
+            0,
+            0
+        )
+        if not fallbackApplied then
+            error("CENTER fallback failed: " .. tostring(fallbackError))
+        end
+        point, relativePoint, x, y = "CENTER", "CENTER", 0, 0
+    end
+
+    if frame:GetNumPoints() == 0 then
+        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        point, relativePoint, x, y = "CENTER", "CENTER", 0, 0
+    end
+
+    if type(self.profile.position) ~= "table" then
+        self.profile.position = {}
+    end
+    self.profile.position.point = point
+    self.profile.position.relativePoint = relativePoint
+    self.profile.position.x = x
+    self.profile.position.y = y
 end
 
 function NetPulse:UpdateDisplayLayout()
@@ -192,13 +245,30 @@ function NetPulse:UpdateDisplayLayout()
 end
 
 function NetPulse:ApplyLayout(useSavedSize)
-    local orientation = self.profile.orientation
+    if type(self.profile) ~= "table" then
+        self:UseDefaultDatabase()
+    end
+    local orientation = self.profile and self.profile.orientation or "horizontal"
+    if orientation ~= "horizontal" and orientation ~= "vertical" then
+        orientation = "horizontal"
+        self.profile.orientation = orientation
+    end
     local bounds = self.layoutBounds[orientation]
     self.display:SetResizeBounds(bounds.minWidth, bounds.minHeight, bounds.maxWidth, bounds.maxHeight)
 
     if useSavedSize then
-        local size = self.profile.size[orientation]
-        self.display:SetSize(size.width, size.height)
+        local profileSize = type(self.profile.size) == "table" and self.profile.size or nil
+        local size = profileSize and profileSize[orientation]
+        local defaultSize = self.defaults.size[orientation]
+        local width = type(size) == "table" and tonumber(size.width) or defaultSize.width
+        local height = type(size) == "table" and tonumber(size.height) or defaultSize.height
+        width = math.max(bounds.minWidth, math.min(bounds.maxWidth, width or defaultSize.width))
+        height = math.max(bounds.minHeight, math.min(bounds.maxHeight, height or defaultSize.height))
+        self.display:SetSize(width, height)
+    end
+
+    if self.display:GetWidth() <= 0 or self.display:GetHeight() <= 0 then
+        self.display:SetSize(self.defaults.size.horizontal.width, self.defaults.size.horizontal.height)
     end
 
     self:UpdateDisplayLayout()
@@ -218,6 +288,9 @@ function NetPulse:ApplyTheme()
     self.display.resizeGrip:SetAlpha(theme.gripAlpha)
     self:UpdateDisplayLayout()
     self:RefreshMetricText()
+    if self.display.fallbackBackground then
+        self.display.fallbackBackground:Hide()
+    end
 end
 
 function NetPulse:ApplyLockState()
@@ -234,12 +307,25 @@ end
 
 function NetPulse:CreateDisplay()
     local frame = CreateFrame("Frame", "NetPulseDisplay", UIParent, "BackdropTemplate")
+    self.display = frame
+    self.values = { fps = 0, home = 0, world = 0 }
+
+    -- Establish a visible, anchored fallback before any optional frame setup.
+    frame:SetSize(320, 40)
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    local fallbackBackground = frame:CreateTexture(nil, "BACKGROUND")
+    fallbackBackground:SetAllPoints(frame)
+    fallbackBackground:SetColorTexture(0.035, 0.045, 0.06, 0.90)
+    frame.fallbackBackground = fallbackBackground
+    frame:Show()
+
     frame:SetFrameStrata("MEDIUM")
     frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
 
     local function createMetricText()
-        local text = frame:CreateFontString(nil, "OVERLAY")
+        local text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         text:SetJustifyH("CENTER")
         text:SetJustifyV("MIDDLE")
         text:SetWordWrap(false)
@@ -249,6 +335,9 @@ function NetPulse:CreateDisplay()
     frame.fpsText = createMetricText()
     frame.homeText = createMetricText()
     frame.worldText = createMetricText()
+    frame.fpsText:SetText("FPS --")
+    frame.homeText:SetText("Home -- ms")
+    frame.worldText:SetText("World -- ms")
 
     frame.separatorOne = frame:CreateFontString(nil, "OVERLAY")
     frame.separatorOne:SetText("|")
@@ -292,6 +381,4 @@ function NetPulse:CreateDisplay()
         NetPulse:SaveSize()
     end)
 
-    self.display = frame
-    self.values = { fps = 0, home = 0, world = 0 }
 end

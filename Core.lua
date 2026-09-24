@@ -1,7 +1,7 @@
 local addonName, NetPulse = ...
 
 NetPulse.addonName = addonName
-NetPulse.version = "0.1.1-alpha"
+NetPulse.version = "0.1.2-alpha"
 NetPulse.schemaVersion = 1
 
 NetPulse.defaults = {
@@ -37,6 +37,7 @@ local validPoints = {
     BOTTOM = true,
     BOTTOMRIGHT = true,
 }
+NetPulse.validPoints = validPoints
 
 local function copyValue(value)
     if type(value) ~= "table" then
@@ -68,7 +69,59 @@ local function clampNumber(value, fallback, minimum, maximum)
 end
 
 function NetPulse:Print(message)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff74a9d8NetPulse:|r " .. tostring(message))
+    local formatted = "|cff74a9d8NetPulse:|r " .. tostring(message)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(formatted)
+    elseif print then
+        print("NetPulse: " .. tostring(message))
+    end
+end
+
+local function startupErrorHandler(errorMessage)
+    local message = tostring(errorMessage)
+    if type(debugstack) == "function" then
+        local stack = debugstack(2, 12, 12)
+        if stack and stack ~= "" then
+            message = message .. "\n" .. stack
+        end
+    end
+    return message
+end
+
+function NetPulse:ReportStartupError(stepName, errorMessage)
+    local message = tostring(errorMessage)
+    self.startupErrors = self.startupErrors or {}
+    self.startupErrors[#self.startupErrors + 1] = {
+        step = stepName,
+        error = message,
+    }
+    self.startupErrorStep = stepName
+    self.lastStartupError = message
+
+    local formatted = "NetPulse startup error [" .. stepName .. "]: " .. message
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff6666" .. formatted .. "|r")
+    elseif print then
+        print(formatted)
+    end
+end
+
+function NetPulse:RunStartupStep(stepName, callback)
+    local success, result = xpcall(callback, startupErrorHandler)
+    if not success then
+        self:ReportStartupError(stepName, result)
+        return false, result
+    end
+    return true, result
+end
+
+function NetPulse:UseDefaultDatabase()
+    NetPulseDB = {
+        schemaVersion = self.schemaVersion,
+        profile = copyValue(self.defaults),
+    }
+    self.db = NetPulseDB
+    self.profile = NetPulseDB.profile
 end
 
 function NetPulse:InitializeDatabase()
@@ -155,21 +208,65 @@ function NetPulse:ResetPositionAndSize()
 end
 
 function NetPulse:Initialize()
-    self:InitializeDatabase()
-    self:CreateDisplay()
-    self:ApplyPosition()
-    self:ApplyLayout(true)
-    self:ApplyTheme()
-    self:ApplyLockState()
-    self:RegisterSlashCommands()
-    self:StartTimers()
-    self.display:Show()
+    self.startupErrors = {}
+    self.startupErrorStep = nil
+    self.lastStartupError = nil
 
-    local settingsCreated, settingsError = pcall(self.CreateSettings, self)
-    if not settingsCreated then
-        self.settingsError = settingsError
-        self:Print("Settings panel could not be initialized: " .. tostring(settingsError))
+    local databaseReady = self:RunStartupStep("InitializeDatabase", function()
+        self:InitializeDatabase()
+    end)
+    if not databaseReady then
+        self:UseDefaultDatabase()
     end
+
+    local slashReady = self:RunStartupStep("RegisterSlashCommands", function()
+        self:RegisterSlashCommands()
+    end)
+    local displayCreated = self:RunStartupStep("CreateDisplay", function()
+        self:CreateDisplay()
+    end)
+
+    local positionReady = false
+    local layoutReady = false
+    local themeReady = false
+    local lockReady = false
+    local timersReady = false
+
+    if self.display then
+        positionReady = self:RunStartupStep("ApplyPosition", function()
+            self:ApplyPosition()
+        end)
+        layoutReady = self:RunStartupStep("ApplyLayout", function()
+            self:ApplyLayout(true)
+        end)
+        themeReady = self:RunStartupStep("ApplyTheme", function()
+            self:ApplyTheme()
+        end)
+        lockReady = self:RunStartupStep("ApplyLockState", function()
+            self:ApplyLockState()
+        end)
+        timersReady = self:RunStartupStep("StartTimers", function()
+            self:StartTimers()
+        end)
+        self.display:Show()
+    end
+
+    local essentialReady = databaseReady and slashReady and displayCreated and positionReady
+        and layoutReady and themeReady and lockReady and timersReady
+    if essentialReady then
+        local message = "NetPulse " .. self.version .. " loaded."
+        if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff74a9d8" .. message .. "|r")
+        elseif print then
+            print(message)
+        end
+    end
+
+    self:RunStartupStep("CreateSettings", function()
+        self:CreateSettings()
+    end)
+
+    return essentialReady
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -179,6 +276,13 @@ eventFrame:SetScript("OnEvent", function(self, _, loadedAddon)
         return
     end
 
+    local initialized, initializeError = xpcall(function()
+        NetPulse:Initialize()
+    end, startupErrorHandler)
+    if not initialized then
+        NetPulse:ReportStartupError("Initialize", initializeError)
+        return
+    end
+
     self:UnregisterEvent("ADDON_LOADED")
-    NetPulse:Initialize()
 end)
