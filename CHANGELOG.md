@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0-beta — 2026-09-24
+
+- First public testing build for CurseForge.
+- Promotes the feature-complete 0.2.0 Alpha without runtime behavior changes.
+
 ## 0.2.0-alpha — 2026-09-24
 
 NetPulse's first feature-complete Alpha milestone includes:

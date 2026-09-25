@@ -41,10 +41,10 @@ Open NetPulse settings from the minimap button, with `/netpulse` or `/np`, or fr
 
 ## Compatibility
 
-- Version: `0.2.0-alpha`
+- Version: `0.2.0-beta`
 - Client: World of Warcraft Retail 12.1.0
 - Interface: `120100`
 
 ## Development status
 
-NetPulse is Alpha software. Its focused feature set is complete for the 0.2.0 Alpha milestone, but in-game testing across different UI scales and addon combinations is still encouraged.
+NetPulse is Beta software. Version 0.2.0-beta is the first public testing build, and feedback from different UI scales and addon combinations is encouraged.
