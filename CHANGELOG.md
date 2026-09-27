@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- First stable public Release.
+- Promotes the tested 0.2.0-beta build without runtime behavior changes.
+
 ## 0.2.0-beta — 2026-09-24
 
 - First public testing build for CurseForge.

@@ -2,7 +2,7 @@
 ## Title: NetPulse
 ## Notes: FPS & Network Monitor
 ## Author: KeepersKeys
-## Version: 0.2.0-beta
+## Version: 0.2.0
 ## IconTexture: Interface\AddOns\NetPulse\Media\NetPulseIcon.tga
 ## SavedVariables: NetPulseDB
 
