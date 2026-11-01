@@ -1,8 +1,8 @@
 local addonName, NetPulse = ...
 
 NetPulse.addonName = addonName
-NetPulse.version = "0.2.0"
-NetPulse.schemaVersion = 2
+NetPulse.version = "0.3.0"
+NetPulse.schemaVersion = 3
 
 NetPulse.defaults = {
     locked = false,
@@ -27,6 +27,9 @@ NetPulse.defaults = {
     minimap = {
         shown = true,
         angle = 220,
+    },
+    metrics = {
+        addonMemory = false,
     },
 }
 
@@ -172,6 +175,9 @@ function NetPulse:InitializeDatabase()
     minimap.angle = tonumber(minimap.angle) or self.defaults.minimap.angle
     minimap.angle = minimap.angle % 360
 
+    local metrics = profile.metrics
+    metrics.addonMemory = metrics.addonMemory == true
+
     self.db = NetPulseDB
     self.profile = profile
 end
@@ -204,6 +210,30 @@ function NetPulse:SetTheme(themeName)
 
     self.profile.theme = themeName
     self:ApplyTheme()
+    self:RefreshSettings()
+    return true
+end
+
+function NetPulse:SetAddonMemoryEnabled(enabled)
+    if not self.profile then
+        return false
+    end
+    if type(self.profile.metrics) ~= "table" then
+        self.profile.metrics = {
+            addonMemory = self.defaults.metrics.addonMemory,
+        }
+    end
+
+    enabled = enabled == true
+    if self.profile.metrics.addonMemory == enabled then
+        self:RefreshSettings()
+        return true
+    end
+
+    self.profile.metrics.addonMemory = enabled
+    self:ConfigureAddonMemoryMonitoring()
+    self:UpdateDisplayLayout()
+    self:RefreshMetricText()
     self:RefreshSettings()
     return true
 end

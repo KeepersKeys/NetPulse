@@ -51,6 +51,34 @@ local function rounded(value)
     return tostring(math.floor(value + 0.5))
 end
 
+local function compactUnit(value, unit)
+    if value < 10 then
+        local text = string.format("%.1f", value):gsub("%.0$", "")
+        return text .. " " .. unit
+    end
+    return rounded(value) .. " " .. unit
+end
+
+local function formatAddonMemory(kilobytes)
+    kilobytes = tonumber(kilobytes) or 0
+    kilobytes = math.max(0, kilobytes)
+    if kilobytes < 1024 then
+        return rounded(kilobytes) .. " KB"
+    end
+
+    local megabytes = kilobytes / 1024
+    if megabytes < 1024 then
+        return compactUnit(megabytes, "MB")
+    end
+
+    return compactUnit(megabytes / 1024, "GB")
+end
+
+function NetPulse:IsAddonMemoryEnabled()
+    return self.profile and type(self.profile.metrics) == "table"
+        and self.profile.metrics.addonMemory == true
+end
+
 function NetPulse:GetFPSColor(fps)
     if fps >= self.thresholds.fps.good then
         return self.statusColors.good
@@ -94,6 +122,16 @@ function NetPulse:RefreshMetricText()
     frame.worldText:SetText(
         colorText("World", theme.labelColor) .. " " .. colorText(rounded(world) .. " ms", self:GetLatencyColor(world))
     )
+
+    if self:IsAddonMemoryEnabled() then
+        if not frame.addonMemoryText then
+            return false
+        end
+        frame.addonMemoryText:SetText(
+            colorText("AddOns", theme.labelColor) .. " "
+                .. colorText(formatAddonMemory(values.addonMemoryKB), theme.valueColor or theme.labelColor)
+        )
+    end
     return true
 end
 
@@ -109,8 +147,81 @@ function NetPulse:UpdateNetwork()
     self:RefreshMetricText()
 end
 
+function NetPulse:UpdateAddonMemory()
+    if not self:IsAddonMemoryEnabled() then
+        return false
+    end
+
+    local addons = C_AddOns
+    if type(UpdateAddOnMemoryUsage) ~= "function"
+        or type(GetAddOnMemoryUsage) ~= "function"
+        or type(addons) ~= "table"
+        or type(addons.GetNumAddOns) ~= "function"
+        or type(addons.IsAddOnLoaded) ~= "function" then
+        return false
+    end
+
+    local updated = pcall(UpdateAddOnMemoryUsage)
+    local countReady, addonCount = pcall(addons.GetNumAddOns)
+    if not updated or not countReady or type(addonCount) ~= "number" then
+        return false
+    end
+
+    local totalKilobytes = 0
+    for index = 1, math.max(0, math.floor(addonCount)) do
+        local isUserAddon = true
+        if type(addons.GetAddOnInfo) == "function" then
+            local infoReady, name, _, _, _, _, security = pcall(addons.GetAddOnInfo, index)
+            isUserAddon = infoReady and type(name) == "string" and name ~= ""
+                and not name:match("^Blizzard_") and security ~= "SECURE"
+        end
+
+        if isUserAddon then
+            local loadedReady, loaded = pcall(addons.IsAddOnLoaded, index)
+            if loadedReady and loaded then
+                local memoryReady, kilobytes = pcall(GetAddOnMemoryUsage, index)
+                if memoryReady and type(kilobytes) == "number" and kilobytes > 0 then
+                    totalKilobytes = totalKilobytes + kilobytes
+                end
+            end
+        end
+    end
+
+    self.values.addonMemoryKB = totalKilobytes
+    self:RefreshMetricText()
+    return true
+end
+
+function NetPulse:StopAddonMemoryMonitoring()
+    if self.addonMemoryTicker then
+        self.addonMemoryTicker:Cancel()
+        self.addonMemoryTicker = nil
+    end
+end
+
+function NetPulse:ConfigureAddonMemoryMonitoring()
+    self:StopAddonMemoryMonitoring()
+    self.values = self.values or { fps = 0, home = 0, world = 0, addonMemoryKB = 0 }
+
+    if not self:IsAddonMemoryEnabled() then
+        self.values.addonMemoryKB = 0
+        return false
+    end
+
+    self:UpdateAddonMemory()
+    self.addonMemoryTicker = C_Timer.NewTicker(15, function()
+        if self:IsAddonMemoryEnabled() then
+            self:UpdateAddonMemory()
+        else
+            self:StopAddonMemoryMonitoring()
+        end
+    end)
+    return true
+end
+
 function NetPulse:StartTimers()
-    self.values = self.values or { fps = 0, home = 0, world = 0 }
+    self.values = self.values or { fps = 0, home = 0, world = 0, addonMemoryKB = 0 }
+    self.values.addonMemoryKB = tonumber(self.values.addonMemoryKB) or 0
     self:UpdateFPS()
     self:UpdateNetwork()
 
@@ -120,6 +231,7 @@ function NetPulse:StartTimers()
     self.networkTicker = C_Timer.NewTicker(30, function()
         self:UpdateNetwork()
     end)
+    self:ConfigureAddonMemoryMonitoring()
 end
 
 function NetPulse:SavePosition()
@@ -197,8 +309,7 @@ end
 
 function NetPulse:UpdateDisplayLayout()
     local frame = self.display
-    if not frame or not frame.fpsText or not frame.homeText or not frame.worldText
-        or not frame.separatorOne or not frame.separatorTwo then
+    if not frame or type(frame.metricTexts) ~= "table" or type(frame.separators) ~= "table" then
         return false
     end
 
@@ -210,53 +321,62 @@ function NetPulse:UpdateDisplayLayout()
         return false
     end
 
-    frame.fpsText:ClearAllPoints()
-    frame.homeText:ClearAllPoints()
-    frame.worldText:ClearAllPoints()
-    frame.separatorOne:ClearAllPoints()
-    frame.separatorTwo:ClearAllPoints()
+    local metricCount = self:IsAddonMemoryEnabled() and 4 or 3
+    for _, text in ipairs(frame.metricTexts) do
+        text:ClearAllPoints()
+    end
+    for _, separator in ipairs(frame.separators) do
+        separator:ClearAllPoints()
+        separator:Hide()
+    end
+    frame.addonMemoryText:SetShown(metricCount == 4)
 
     local fontSize
     if orientation == "horizontal" then
         local padding = math.max(5, math.min(14, math.floor(height * 0.18)))
         local separatorWidth = math.max(10, math.min(24, math.floor(height * 0.38)))
-        local cellWidth = (width - (padding * 2) - (separatorWidth * 2)) / 3
+        local cellWidth = (width - (padding * 2) - (separatorWidth * (metricCount - 1))) / metricCount
         fontSize = math.floor(math.max(10, math.min(30, height * 0.39, cellWidth / 7.4)))
 
-        frame.fpsText:SetPoint("LEFT", frame, "LEFT", padding, 0)
-        frame.fpsText:SetSize(cellWidth, height)
-        frame.separatorOne:SetPoint("LEFT", frame.fpsText, "RIGHT", 0, 0)
-        frame.separatorOne:SetSize(separatorWidth, height)
-        frame.homeText:SetPoint("LEFT", frame.separatorOne, "RIGHT", 0, 0)
-        frame.homeText:SetSize(cellWidth, height)
-        frame.separatorTwo:SetPoint("LEFT", frame.homeText, "RIGHT", 0, 0)
-        frame.separatorTwo:SetSize(separatorWidth, height)
-        frame.worldText:SetPoint("LEFT", frame.separatorTwo, "RIGHT", 0, 0)
-        frame.worldText:SetSize(cellWidth, height)
-
-        frame.separatorOne:Show()
-        frame.separatorTwo:Show()
+        local previousText
+        for index = 1, metricCount do
+            local text = frame.metricTexts[index]
+            if index == 1 then
+                text:SetPoint("LEFT", frame, "LEFT", padding, 0)
+            else
+                local separator = frame.separators[index - 1]
+                separator:SetPoint("LEFT", previousText, "RIGHT", 0, 0)
+                separator:SetSize(separatorWidth, height)
+                separator:Show()
+                text:SetPoint("LEFT", separator, "RIGHT", 0, 0)
+            end
+            text:SetSize(cellWidth, height)
+            previousText = text
+        end
     else
         local padding = math.max(5, math.min(16, math.floor(width * 0.05)))
-        local rowHeight = (height - (padding * 2)) / 3
+        local rowHeight = (height - (padding * 2)) / metricCount
         fontSize = math.floor(math.max(10, math.min(32, rowHeight * 0.55, (width - padding * 2) / 7.4)))
 
-        frame.fpsText:SetPoint("TOPLEFT", frame, "TOPLEFT", padding, -padding)
-        frame.fpsText:SetSize(width - padding * 2, rowHeight)
-        frame.homeText:SetPoint("TOPLEFT", frame.fpsText, "BOTTOMLEFT", 0, 0)
-        frame.homeText:SetSize(width - padding * 2, rowHeight)
-        frame.worldText:SetPoint("TOPLEFT", frame.homeText, "BOTTOMLEFT", 0, 0)
-        frame.worldText:SetSize(width - padding * 2, rowHeight)
-
-        frame.separatorOne:Hide()
-        frame.separatorTwo:Hide()
+        local previousText
+        for index = 1, metricCount do
+            local text = frame.metricTexts[index]
+            if index == 1 then
+                text:SetPoint("TOPLEFT", frame, "TOPLEFT", padding, -padding)
+            else
+                text:SetPoint("TOPLEFT", previousText, "BOTTOMLEFT", 0, 0)
+            end
+            text:SetSize(width - padding * 2, rowHeight)
+            previousText = text
+        end
     end
 
-    frame.fpsText:SetFont(theme.font, fontSize, theme.fontFlags)
-    frame.homeText:SetFont(theme.font, fontSize, theme.fontFlags)
-    frame.worldText:SetFont(theme.font, fontSize, theme.fontFlags)
-    frame.separatorOne:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
-    frame.separatorTwo:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
+    for _, text in ipairs(frame.metricTexts) do
+        text:SetFont(theme.font, fontSize, theme.fontFlags)
+    end
+    for _, separator in ipairs(frame.separators) do
+        separator:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
+    end
     return true
 end
 
@@ -304,11 +424,10 @@ function NetPulse:ApplyTheme()
     frame:SetBackdrop(theme.backdrop)
     frame:SetBackdropColor(unpack(theme.backgroundColor))
     frame:SetBackdropBorderColor(unpack(theme.borderColor))
-    if frame.separatorOne then
-        frame.separatorOne:SetTextColor(unpack(theme.separatorColor))
-    end
-    if frame.separatorTwo then
-        frame.separatorTwo:SetTextColor(unpack(theme.separatorColor))
+    if type(frame.separators) == "table" then
+        for _, separator in ipairs(frame.separators) do
+            separator:SetTextColor(unpack(theme.separatorColor))
+        end
     end
     if frame.resizeGrip then
         frame.resizeGrip:SetAlpha(theme.gripAlpha)
@@ -340,7 +459,7 @@ end
 function NetPulse:CreateDisplay()
     local frame = CreateFrame("Frame", "NetPulseDisplay", UIParent, "BackdropTemplate")
     self.display = frame
-    self.values = { fps = 0, home = 0, world = 0 }
+    self.values = { fps = 0, home = 0, world = 0, addonMemoryKB = 0 }
 
     -- Establish a visible, anchored fallback before any optional frame setup.
     frame:SetSize(320, 40)
@@ -367,9 +486,11 @@ function NetPulse:CreateDisplay()
     frame.fpsText = createMetricText()
     frame.homeText = createMetricText()
     frame.worldText = createMetricText()
+    frame.addonMemoryText = createMetricText()
     frame.fpsText:SetText("FPS --")
     frame.homeText:SetText("Home -- ms")
     frame.worldText:SetText("World -- ms")
+    frame.addonMemoryText:SetText("AddOns --")
 
     frame.separatorOne = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.separatorOne:SetText("|")
@@ -380,6 +501,23 @@ function NetPulse:CreateDisplay()
     frame.separatorTwo:SetText("|")
     frame.separatorTwo:SetJustifyH("CENTER")
     frame.separatorTwo:SetJustifyV("MIDDLE")
+
+    frame.separatorThree = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.separatorThree:SetText("|")
+    frame.separatorThree:SetJustifyH("CENTER")
+    frame.separatorThree:SetJustifyV("MIDDLE")
+
+    frame.metricTexts = {
+        frame.fpsText,
+        frame.homeText,
+        frame.worldText,
+        frame.addonMemoryText,
+    }
+    frame.separators = {
+        frame.separatorOne,
+        frame.separatorTwo,
+        frame.separatorThree,
+    }
 
     local resizeGrip = CreateFrame("Button", nil, frame)
     resizeGrip:SetSize(16, 16)

@@ -1,8 +1,8 @@
-## Interface: 120100
+## Interface: 120105
 ## Title: NetPulse
 ## Notes: FPS & Network Monitor
 ## Author: KeepersKeys
-## Version: 0.2.0
+## Version: 0.3.0
 ## IconTexture: Interface\AddOns\NetPulse\Media\NetPulseIcon.tga
 ## SavedVariables: NetPulseDB
 

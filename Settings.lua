@@ -55,6 +55,10 @@ function NetPulse:RefreshSettings()
         radio:SetChecked(self.profile.theme == themeName)
     end
 
+    if controls.addonMemory and type(self.profile.metrics) == "table" then
+        controls.addonMemory:SetChecked(self.profile.metrics.addonMemory == true)
+    end
+
     if controls.minimap and type(self.profile.minimap) == "table" then
         controls.minimap:SetChecked(self.profile.minimap.shown ~= false)
     end
@@ -101,28 +105,41 @@ function NetPulse:CreateSettings()
     local themeLabel = createLabel(panel, "Theme", "GameFontHighlightSmall")
     themeLabel:SetPoint("TOPLEFT", horizontalRadio, "BOTTOMLEFT", 0, -16)
 
-    local firstThemeRadio
-    local previousThemeRadio
+    local themeColumnWidth = 150
+    local themeRowHeight = 24
+    local finalThemeRowAnchor = themeLabel
     for index, themeName in ipairs(self.themeOrder) do
         local selectedTheme = themeName
         local theme = self.Themes[selectedTheme]
         local radio = createRadio(panel, theme.displayName, function()
             self:SetTheme(selectedTheme)
         end)
-        if index == 1 then
-            radio:SetPoint("TOPLEFT", themeLabel, "BOTTOMLEFT", 0, -6)
-            firstThemeRadio = radio
-        elseif index % 2 == 0 then
-            radio:SetPoint("LEFT", previousThemeRadio, "LEFT", 120, 0)
-        else
-            radio:SetPoint("TOPLEFT", firstThemeRadio, "BOTTOMLEFT", 0, -6)
+        local row = math.floor((index - 1) / 2)
+        local column = (index - 1) % 2
+        radio:SetPoint(
+            "TOPLEFT",
+            themeLabel,
+            "BOTTOMLEFT",
+            column * themeColumnWidth,
+            -6 - (row * themeRowHeight)
+        )
+        if column == 0 then
+            finalThemeRowAnchor = radio
         end
         panel.controls.themes[selectedTheme] = radio
-        previousThemeRadio = radio
     end
 
+    local metricsHeader = createLabel(panel, "Metrics", "GameFontNormalLarge")
+    metricsHeader:SetPoint("TOPLEFT", finalThemeRowAnchor, "BOTTOMLEFT", 0, -22)
+
+    local addonMemoryCheck = createCheckbox(panel, "Show Addon Memory", function(check)
+        self:SetAddonMemoryEnabled(check:GetChecked() == true)
+    end)
+    addonMemoryCheck:SetPoint("TOPLEFT", metricsHeader, "BOTTOMLEFT", 0, -8)
+    panel.controls.addonMemory = addonMemoryCheck
+
     local minimapHeader = createLabel(panel, "Minimap", "GameFontNormalLarge")
-    minimapHeader:SetPoint("TOPLEFT", panel.controls.themes.blizzard, "BOTTOMLEFT", 0, -22)
+    minimapHeader:SetPoint("TOPLEFT", addonMemoryCheck, "BOTTOMLEFT", 0, -22)
 
     local minimapCheck = createCheckbox(panel, "Show Minimap Button", function(check)
         self:SetMinimapShown(check:GetChecked() == true)
@@ -152,6 +169,7 @@ function NetPulse:CreateSettings()
         self:SetLocked(self.defaults.locked)
         self:SetOrientation(self.defaults.orientation)
         self:SetTheme(self.defaults.theme)
+        self:SetAddonMemoryEnabled(self.defaults.metrics.addonMemory)
         self:SetMinimapShown(self.defaults.minimap.shown)
         self:ResetPositionAndSize()
     end
@@ -177,6 +195,7 @@ function NetPulse:PrintDebugState()
     local frame = self.display or _G.NetPulseDisplay
     local profile = self.profile or {}
     local values = self.values or {}
+    local metrics = type(profile.metrics) == "table" and profile.metrics or {}
     local minimap = type(profile.minimap) == "table" and profile.minimap or {}
     local minimapButton = self.minimapButton
     local shown = frame and frame:IsShown() or false
@@ -212,6 +231,11 @@ function NetPulse:PrintDebugState()
         tonumber(minimap.angle) or self.defaults.minimap.angle,
         tostring(minimapButton ~= nil),
         tostring(minimapButton and minimapButton:IsShown() or false)
+    ))
+    self:Print(string.format(
+        "addonMemoryEnabled=%s addonMemoryKB=%.0f",
+        tostring(metrics.addonMemory == true),
+        tonumber(values.addonMemoryKB) or 0
     ))
     self:Print("startup error=" .. tostring(self.startupErrorStep or "none") .. ": " .. errorSummary)
 end
@@ -260,11 +284,11 @@ function NetPulse:RegisterSlashCommands()
             end
         elseif command == "theme" then
             if argument == "" then
-                self:Print("Themes: minimal, dark, blizzard, forged")
+                self:Print("Themes: minimal, dark, blizzard, forged, blizzardnative")
             elseif self:SetTheme(argument) then
                 self:Print("Theme set to " .. self.Themes[argument].displayName .. ".")
             else
-                self:Print("Unknown theme. Available: minimal, dark, blizzard, forged")
+                self:Print("Unknown theme. Available: minimal, dark, blizzard, forged, blizzardnative")
             end
         else
             self:Print("Commands: debug, lock, unlock, reset, horizontal, vertical, minimap on|off, theme <name>")
