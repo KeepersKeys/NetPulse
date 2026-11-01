@@ -4,10 +4,12 @@
 
 - Updated NetPulse for World of Warcraft Retail 12.1.5.
 - Added optional total addon-memory monitoring.
+- Added addon-memory hover breakdown sorted by highest usage.
 - Added the Blizzard Native theme.
-- Added dynamic metric layout support.
+- Added dynamic three/four-metric layout support.
 - Improved Settings theme layout for additional themes.
-- Preserved the existing NetPulse 0.2.0 display and behavior when addon memory is disabled.
+- Preserved the original three-metric display when addon memory is disabled.
+- Improved AddOns metric interaction so hovering, dragging, and resizing work cleanly together.
 
 ## 0.2.0
 

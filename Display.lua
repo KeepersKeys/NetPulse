@@ -51,15 +51,15 @@ local function rounded(value)
     return tostring(math.floor(value + 0.5))
 end
 
-local function compactUnit(value, unit)
-    if value < 10 then
+local function formatDecimalUnit(value, unit, decimalLimit)
+    if value < decimalLimit then
         local text = string.format("%.1f", value):gsub("%.0$", "")
         return text .. " " .. unit
     end
     return rounded(value) .. " " .. unit
 end
 
-local function formatAddonMemory(kilobytes)
+local function formatAddonMemory(kilobytes, detailed)
     kilobytes = tonumber(kilobytes) or 0
     kilobytes = math.max(0, kilobytes)
     if kilobytes < 1024 then
@@ -68,11 +68,20 @@ local function formatAddonMemory(kilobytes)
 
     local megabytes = kilobytes / 1024
     if megabytes < 1024 then
-        return compactUnit(megabytes, "MB")
+        return formatDecimalUnit(megabytes, "MB", detailed and math.huge or 100)
     end
 
-    return compactUnit(megabytes / 1024, "GB")
+    return formatDecimalUnit(megabytes / 1024, "GB", detailed and math.huge or 10)
 end
+
+local horizontalMemorySamples = {
+    "FPS 999",
+    "Home 999 ms",
+    "World 999 ms",
+    "AddOns 999.9 MB",
+}
+
+local horizontalMetricPadding = 8
 
 function NetPulse:IsAddonMemoryEnabled()
     return self.profile and type(self.profile.metrics) == "table"
@@ -95,6 +104,40 @@ function NetPulse:GetLatencyColor(latency)
         return self.statusColors.moderate
     end
     return self.statusColors.poor
+end
+
+function NetPulse:UpdateAddonMemoryHitTarget()
+    local frame = self.display
+    local hitTarget = frame and frame.addonMemoryHit
+    local memoryText = frame and frame.addonMemoryText
+    if not hitTarget or not memoryText then
+        return false
+    end
+
+    if not self:IsAddonMemoryEnabled() then
+        hitTarget:Hide()
+        return true
+    end
+
+    local textWidth = type(memoryText.GetUnboundedStringWidth) == "function"
+        and tonumber(memoryText:GetUnboundedStringWidth()) or 0
+    local textHeight = type(memoryText.GetStringHeight) == "function"
+        and tonumber(memoryText:GetStringHeight()) or 0
+    local maximumWidth = tonumber(memoryText:GetWidth()) or 0
+    local maximumHeight = tonumber(memoryText:GetHeight()) or 0
+
+    if maximumWidth <= 0 or maximumHeight <= 0 then
+        hitTarget:Hide()
+        return false
+    end
+
+    local targetWidth = math.min(maximumWidth, math.max(1, math.ceil(textWidth) + 8))
+    local targetHeight = math.min(maximumHeight, math.max(1, math.ceil(textHeight) + 4))
+    hitTarget:ClearAllPoints()
+    hitTarget:SetSize(targetWidth, targetHeight)
+    hitTarget:SetPoint("CENTER", memoryText, "CENTER", 0, 0)
+    hitTarget:Show()
+    return true
 end
 
 function NetPulse:RefreshMetricText()
@@ -129,9 +172,10 @@ function NetPulse:RefreshMetricText()
         end
         frame.addonMemoryText:SetText(
             colorText("AddOns", theme.labelColor) .. " "
-                .. colorText(formatAddonMemory(values.addonMemoryKB), theme.valueColor or theme.labelColor)
+                .. colorText(formatAddonMemory(values.addonMemoryKB, false), theme.valueColor or theme.labelColor)
         )
     end
+    self:UpdateAddonMemoryHitTarget()
     return true
 end
 
@@ -147,48 +191,118 @@ function NetPulse:UpdateNetwork()
     self:RefreshMetricText()
 end
 
-function NetPulse:UpdateAddonMemory()
-    if not self:IsAddonMemoryEnabled() then
-        return false
-    end
-
+function NetPulse:CollectAddonMemorySnapshot(includeEntries)
     local addons = C_AddOns
     if type(UpdateAddOnMemoryUsage) ~= "function"
         or type(GetAddOnMemoryUsage) ~= "function"
         or type(addons) ~= "table"
         or type(addons.GetNumAddOns) ~= "function"
+        or type(addons.GetAddOnInfo) ~= "function"
         or type(addons.IsAddOnLoaded) ~= "function" then
-        return false
+        return nil, nil
     end
 
     local updated = pcall(UpdateAddOnMemoryUsage)
     local countReady, addonCount = pcall(addons.GetNumAddOns)
     if not updated or not countReady or type(addonCount) ~= "number" then
-        return false
+        return nil, nil
     end
 
     local totalKilobytes = 0
+    local entries = includeEntries and {} or nil
     for index = 1, math.max(0, math.floor(addonCount)) do
-        local isUserAddon = true
-        if type(addons.GetAddOnInfo) == "function" then
-            local infoReady, name, _, _, _, _, security = pcall(addons.GetAddOnInfo, index)
-            isUserAddon = infoReady and type(name) == "string" and name ~= ""
-                and not name:match("^Blizzard_") and security ~= "SECURE"
-        end
+        local infoReady, folderName, title, _, _, _, security = pcall(addons.GetAddOnInfo, index)
+        local isUserAddon = infoReady and type(folderName) == "string" and folderName ~= ""
+            and not folderName:match("^Blizzard_") and security ~= "SECURE"
 
         if isUserAddon then
             local loadedReady, loaded = pcall(addons.IsAddOnLoaded, index)
             if loadedReady and loaded then
                 local memoryReady, kilobytes = pcall(GetAddOnMemoryUsage, index)
-                if memoryReady and type(kilobytes) == "number" and kilobytes > 0 then
-                    totalKilobytes = totalKilobytes + kilobytes
+                if memoryReady and type(kilobytes) == "number" and kilobytes >= 0 then
+                    if kilobytes > 0 then
+                        totalKilobytes = totalKilobytes + kilobytes
+                    end
+                    if entries then
+                        local displayName = type(title) == "string" and title ~= "" and title or folderName
+                        entries[#entries + 1] = {
+                            name = displayName,
+                            memoryKB = kilobytes,
+                        }
+                    end
                 end
             end
         end
     end
 
+    if entries then
+        table.sort(entries, function(left, right)
+            if left.memoryKB == right.memoryKB then
+                return string.lower(left.name) < string.lower(right.name)
+            end
+            return left.memoryKB > right.memoryKB
+        end)
+    end
+
+    return totalKilobytes, entries
+end
+
+function NetPulse:UpdateAddonMemory()
+    if not self:IsAddonMemoryEnabled() then
+        return false
+    end
+
+    local totalKilobytes = self:CollectAddonMemorySnapshot(false)
+    if type(totalKilobytes) ~= "number" then
+        return false
+    end
+
     self.values.addonMemoryKB = totalKilobytes
     self:RefreshMetricText()
+    return true
+end
+
+function NetPulse:ShowAddonMemoryTooltip(owner)
+    if not owner or not self:IsAddonMemoryEnabled() or not GameTooltip then
+        return false
+    end
+
+    local totalKilobytes, entries = self:CollectAddonMemorySnapshot(true)
+    if type(totalKilobytes) ~= "number" or type(entries) ~= "table" then
+        return false
+    end
+
+    self.values.addonMemoryKB = totalKilobytes
+    self:RefreshMetricText()
+
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine("Addon Memory", 1, 0.82, 0)
+    GameTooltip:AddDoubleLine("Total:", formatAddonMemory(totalKilobytes, true), 1, 1, 1, 1, 1, 1)
+    GameTooltip:AddLine(" ")
+
+    local visibleCount = math.min(20, #entries)
+    for index = 1, visibleCount do
+        local entry = entries[index]
+        GameTooltip:AddDoubleLine(
+            entry.name,
+            formatAddonMemory(entry.memoryKB, true),
+            1,
+            1,
+            1,
+            0.85,
+            0.85,
+            0.85
+        )
+    end
+
+    if #entries > visibleCount then
+        GameTooltip:AddLine("+ " .. (#entries - visibleCount) .. " more loaded addons", 0.75, 0.75, 0.75)
+    end
+
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Loaded addons • highest usage first", 0.55, 0.55, 0.55)
+    GameTooltip:Show()
     return true
 end
 
@@ -307,6 +421,52 @@ function NetPulse:ApplyPosition()
     self.profile.position.y = y
 end
 
+function NetPulse:GetHorizontalMetricMinimumWidths(theme, fontSize)
+    local frame = self.display
+    local measureText = frame and frame.measureText
+    local widths = {}
+
+    if measureText and theme then
+        measureText:SetFont(theme.font, fontSize, theme.fontFlags)
+    end
+
+    for index, sample in ipairs(horizontalMemorySamples) do
+        local measuredWidth
+        if measureText then
+            measureText:SetText(sample)
+            if type(measureText.GetUnboundedStringWidth) == "function" then
+                measuredWidth = measureText:GetUnboundedStringWidth()
+            elseif type(measureText.GetStringWidth) == "function" then
+                measuredWidth = measureText:GetStringWidth()
+            end
+        end
+        widths[index] = math.ceil(math.max(1, tonumber(measuredWidth) or (#sample * fontSize * 0.55))
+            + horizontalMetricPadding)
+    end
+
+    return widths
+end
+
+function NetPulse:GetAddonMemoryHorizontalMinimumWidth(height)
+    local bounds = self.layoutBounds.horizontal
+    local theme = self.Themes and self.profile and self.Themes[self.profile.theme]
+    if not theme then
+        return bounds.minWidth
+    end
+
+    height = tonumber(height) or self.defaults.size.horizontal.height
+    local padding = math.max(5, math.min(14, math.floor(height * 0.18)))
+    local separatorWidth = math.max(10, math.min(24, math.floor(height * 0.38)))
+    local fontSize = math.floor(math.max(10, math.min(30, height * 0.39)))
+    local cellWidths = self:GetHorizontalMetricMinimumWidths(theme, fontSize)
+    local minimumWidth = padding * 2 + separatorWidth * 3
+    for _, cellWidth in ipairs(cellWidths) do
+        minimumWidth = minimumWidth + cellWidth
+    end
+
+    return math.max(bounds.minWidth, math.min(bounds.maxWidth, math.ceil(minimumWidth)))
+end
+
 function NetPulse:UpdateDisplayLayout()
     local frame = self.display
     if not frame or type(frame.metricTexts) ~= "table" or type(frame.separators) ~= "table" then
@@ -335,23 +495,59 @@ function NetPulse:UpdateDisplayLayout()
     if orientation == "horizontal" then
         local padding = math.max(5, math.min(14, math.floor(height * 0.18)))
         local separatorWidth = math.max(10, math.min(24, math.floor(height * 0.38)))
-        local cellWidth = (width - (padding * 2) - (separatorWidth * (metricCount - 1))) / metricCount
-        fontSize = math.floor(math.max(10, math.min(30, height * 0.39, cellWidth / 7.4)))
+        if metricCount == 3 then
+            local cellWidth = (width - (padding * 2) - (separatorWidth * (metricCount - 1))) / metricCount
+            fontSize = math.floor(math.max(10, math.min(30, height * 0.39, cellWidth / 7.4)))
 
-        local previousText
-        for index = 1, metricCount do
-            local text = frame.metricTexts[index]
-            if index == 1 then
-                text:SetPoint("LEFT", frame, "LEFT", padding, 0)
-            else
-                local separator = frame.separators[index - 1]
-                separator:SetPoint("LEFT", previousText, "RIGHT", 0, 0)
-                separator:SetSize(separatorWidth, height)
-                separator:Show()
-                text:SetPoint("LEFT", separator, "RIGHT", 0, 0)
+            local previousText
+            for index = 1, metricCount do
+                local text = frame.metricTexts[index]
+                if index == 1 then
+                    text:SetPoint("LEFT", frame, "LEFT", padding, 0)
+                else
+                    local separator = frame.separators[index - 1]
+                    separator:SetPoint("LEFT", previousText, "RIGHT", 0, 0)
+                    separator:SetSize(separatorWidth, height)
+                    separator:Show()
+                    text:SetPoint("LEFT", separator, "RIGHT", 0, 0)
+                end
+                text:SetSize(cellWidth, height)
+                previousText = text
             end
-            text:SetSize(cellWidth, height)
-            previousText = text
+        else
+            fontSize = math.floor(math.max(10, math.min(30, height * 0.39)))
+            local availableWidth = width - (padding * 2) - (separatorWidth * (metricCount - 1))
+            local cellWidths = self:GetHorizontalMetricMinimumWidths(theme, fontSize)
+            local minimumCellWidth = 0
+            for _, cellWidth in ipairs(cellWidths) do
+                minimumCellWidth = minimumCellWidth + cellWidth
+            end
+
+            while minimumCellWidth > availableWidth and fontSize > 10 do
+                fontSize = fontSize - 1
+                cellWidths = self:GetHorizontalMetricMinimumWidths(theme, fontSize)
+                minimumCellWidth = 0
+                for _, cellWidth in ipairs(cellWidths) do
+                    minimumCellWidth = minimumCellWidth + cellWidth
+                end
+            end
+
+            local extraCellWidth = math.max(0, availableWidth - minimumCellWidth) / metricCount
+            local previousText
+            for index = 1, metricCount do
+                local text = frame.metricTexts[index]
+                if index == 1 then
+                    text:SetPoint("LEFT", frame, "LEFT", padding, 0)
+                else
+                    local separator = frame.separators[index - 1]
+                    separator:SetPoint("LEFT", previousText, "RIGHT", 0, 0)
+                    separator:SetSize(separatorWidth, height)
+                    separator:Show()
+                    text:SetPoint("LEFT", separator, "RIGHT", 0, 0)
+                end
+                text:SetSize(cellWidths[index] + extraCellWidth, height)
+                previousText = text
+            end
         end
     else
         local padding = math.max(5, math.min(16, math.floor(width * 0.05)))
@@ -377,6 +573,7 @@ function NetPulse:UpdateDisplayLayout()
     for _, separator in ipairs(frame.separators) do
         separator:SetFont(theme.font, math.max(9, fontSize - 1), theme.fontFlags)
     end
+    self:UpdateAddonMemoryHitTarget()
     return true
 end
 
@@ -390,17 +587,29 @@ function NetPulse:ApplyLayout(useSavedSize)
         self.profile.orientation = orientation
     end
     local bounds = self.layoutBounds[orientation]
-    self.display:SetResizeBounds(bounds.minWidth, bounds.minHeight, bounds.maxWidth, bounds.maxHeight)
+    local defaultSize = self.defaults.size[orientation]
+    local targetWidth = self.display:GetWidth()
+    local targetHeight = self.display:GetHeight()
 
     if useSavedSize then
         local profileSize = type(self.profile.size) == "table" and self.profile.size or nil
         local size = profileSize and profileSize[orientation]
-        local defaultSize = self.defaults.size[orientation]
-        local width = type(size) == "table" and tonumber(size.width) or defaultSize.width
-        local height = type(size) == "table" and tonumber(size.height) or defaultSize.height
-        width = math.max(bounds.minWidth, math.min(bounds.maxWidth, width or defaultSize.width))
-        height = math.max(bounds.minHeight, math.min(bounds.maxHeight, height or defaultSize.height))
-        self.display:SetSize(width, height)
+        targetWidth = type(size) == "table" and tonumber(size.width) or defaultSize.width
+        targetHeight = type(size) == "table" and tonumber(size.height) or defaultSize.height
+        targetHeight = math.max(bounds.minHeight, math.min(bounds.maxHeight, targetHeight or defaultSize.height))
+    end
+
+    local minimumWidth = bounds.minWidth
+    if orientation == "horizontal" and self:IsAddonMemoryEnabled() then
+        minimumWidth = self:GetAddonMemoryHorizontalMinimumWidth(targetHeight)
+    end
+    self.display:SetResizeBounds(minimumWidth, bounds.minHeight, bounds.maxWidth, bounds.maxHeight)
+
+    if useSavedSize then
+        targetWidth = math.max(minimumWidth, math.min(bounds.maxWidth, targetWidth or defaultSize.width))
+        self.display:SetSize(targetWidth, targetHeight)
+    elseif orientation == "horizontal" and self.display:GetWidth() < minimumWidth then
+        self.display:SetWidth(minimumWidth)
     end
 
     if self.display:GetWidth() <= 0 or self.display:GetHeight() <= 0 then
@@ -492,6 +701,9 @@ function NetPulse:CreateDisplay()
     frame.worldText:SetText("World -- ms")
     frame.addonMemoryText:SetText("AddOns --")
 
+    frame.measureText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.measureText:Hide()
+
     frame.separatorOne = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.separatorOne:SetText("|")
     frame.separatorOne:SetJustifyH("CENTER")
@@ -519,7 +731,40 @@ function NetPulse:CreateDisplay()
         frame.separatorThree,
     }
 
+    local addonMemoryHit = CreateFrame("Frame", nil, frame)
+    addonMemoryHit:SetFrameLevel(frame:GetFrameLevel() + 1)
+    addonMemoryHit:SetMouseClickEnabled(true)
+    addonMemoryHit:SetMouseMotionEnabled(true)
+    addonMemoryHit:RegisterForDrag("LeftButton")
+    addonMemoryHit:Hide()
+    addonMemoryHit:SetScript("OnEnter", function(owner)
+        NetPulse:ShowAddonMemoryTooltip(owner)
+    end)
+    addonMemoryHit:SetScript("OnLeave", function()
+        if GameTooltip then
+            GameTooltip:Hide()
+        end
+    end)
+    addonMemoryHit:SetScript("OnDragStart", function(owner)
+        if not NetPulse.profile.locked then
+            if GameTooltip then
+                GameTooltip:Hide()
+            end
+            owner.movingDisplay = true
+            frame:StartMoving()
+        end
+    end)
+    addonMemoryHit:SetScript("OnDragStop", function(owner)
+        if owner.movingDisplay then
+            frame:StopMovingOrSizing()
+            NetPulse:SavePosition()
+            owner.movingDisplay = nil
+        end
+    end)
+    frame.addonMemoryHit = addonMemoryHit
+
     local resizeGrip = CreateFrame("Button", nil, frame)
+    resizeGrip:SetFrameLevel(addonMemoryHit:GetFrameLevel() + 1)
     resizeGrip:SetSize(16, 16)
     resizeGrip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
     resizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")

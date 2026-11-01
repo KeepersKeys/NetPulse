@@ -232,7 +232,7 @@ function NetPulse:SetAddonMemoryEnabled(enabled)
 
     self.profile.metrics.addonMemory = enabled
     self:ConfigureAddonMemoryMonitoring()
-    self:UpdateDisplayLayout()
+    self:ApplyLayout(false)
     self:RefreshMetricText()
     self:RefreshSettings()
     return true
